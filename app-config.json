@@ -14,10 +14,10 @@
   "listAsyncJS": [],
   "template": {
     "name": "zaui-market",
-    "apiUrl": "",
+    "apiUrl": "https://pinhoanglong-miniapp.onrender.com",
     "oaIDtoOpenChat": "4318657068771012646",
     "logoUrl": "https://photo-logo-mapps.zadn.vn/284fadf20bb7e2e9bba6.jpg",
-    "shopName": "Tiệm Tí Hon",
-    "shopAddress": "Z06 Số 13, Tân Thuận Đông, Quận 7, Hồ Chí Minh"
+    "shopName": "Pin Hoàng Long",
+    "shopAddress": "301/5Đ Phạm Thị Giây, Hóc Môn, Hồ Chí Minh"
   }
 }
