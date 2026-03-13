@@ -22,8 +22,8 @@ app.use(
       "https://h5.zdn.vn",
       "http://localhost:3000",
       "http://localhost:5173",
-      "https://pinhoanglong-miniapp.onrender.com",
-      "https://pinhoanglong-miniapp-zu7q.onrender.com",
+      "https://pinhoanglong.miniapp.onrender.com",
+      "https://pinhoanglong.miniapp-zu7q.onrender.com",
       ...corsOriginsFromEnv,
     ],
   })
