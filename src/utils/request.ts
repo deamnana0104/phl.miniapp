@@ -7,12 +7,18 @@ const mockUrls = import.meta.glob<{ default: string }>("../mock/*.json", {
   eager: true,
 });
 
+function joinUrl(base: string, path: string) {
+  const normalizedBase = base.replace(/\/+$/, "");
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${normalizedBase}${normalizedPath}`;
+}
+
 export async function request<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
   const url = API_URL
-    ? `${API_URL}${path}`
+    ? joinUrl(API_URL, path)
     : mockUrls[`../mock${path}.json`]?.default;
 
   if (!API_URL) {
