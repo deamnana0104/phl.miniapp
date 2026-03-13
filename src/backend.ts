@@ -31,10 +31,22 @@ app.use(
 
 /* ---------------- MONGODB CONNECT ---------------- */
 
+if (!process.env.MONGO_URL) {
+  console.error("Missing MONGO_URL. Please set it in environment variables.");
+}
+
 mongoose
   .connect(process.env.MONGO_URL as string)
   .then(() => console.log("MongoDB connected"))
   .catch((err) => console.error(err));
+
+mongoose.connection.on("error", (err) => {
+  console.error("MongoDB connection error", err);
+});
+
+mongoose.connection.on("disconnected", () => {
+  console.warn("MongoDB disconnected");
+});
 
 /* ---------------- SCHEMAS ---------------- */
 
@@ -48,13 +60,50 @@ const productSchema = new mongoose.Schema({
   detail: String,
 });
 
+const categorySchema = new mongoose.Schema({
+  id: { type: Number, index: true, unique: true, sparse: true },
+  name: String,
+  image: String,
+});
+
+const bannerSchema = new mongoose.Schema({
+  id: { type: Number, index: true, unique: true, sparse: true },
+  image: String,
+});
+
+const stationSchema = new mongoose.Schema({
+  id: { type: Number, index: true, unique: true, sparse: true },
+  name: String,
+  image: String,
+  address: String,
+  location: {
+    lat: Number,
+    lng: Number,
+  },
+});
+
 const orderSchema = new mongoose.Schema({
+  id: { type: Number, index: true, unique: true, sparse: true },
   zaloUserId: String,
-  checkoutSdkOrderId: Number,
-  info: Object,
+  status: { type: String, enum: ["pending", "shipping", "completed"] },
+  paymentStatus: { type: String, enum: ["pending", "success", "failed"] },
+  createdAt: Date,
+  receivedAt: Date,
+  items: [
+    {
+      product: Object,
+      quantity: Number,
+    },
+  ],
+  delivery: Object,
+  total: Number,
+  note: String,
 });
 
 const Product = mongoose.model("Product", productSchema);
+const Category = mongoose.model("Category", categorySchema);
+const Banner = mongoose.model("Banner", bannerSchema);
+const Station = mongoose.model("Station", stationSchema);
 const Order = mongoose.model("Order", orderSchema);
 
 /* ---------------- ADMIN PAGE ---------------- */
@@ -103,9 +152,41 @@ async function ensureProductNumericIds() {
   }
 }
 
+async function ensureNumericIds(Model: mongoose.Model<any>) {
+  const missing = await Model.find({
+    $or: [{ id: { $exists: false } }, { id: null }],
+  }).sort({ _id: 1 });
+  if (missing.length === 0) return;
+
+  const maxExisting = await Model.findOne({ id: { $exists: true, $ne: null } })
+    .sort({ id: -1 })
+    .select({ id: 1 });
+  let nextId = (maxExisting as any)?.id ?? 0;
+
+  for (const doc of missing) {
+    nextId += 1;
+    doc.set("id", nextId);
+    await doc.save();
+  }
+}
+
+async function nextNumericId(Model: mongoose.Model<any>) {
+  const maxExisting = await Model.findOne({ id: { $exists: true, $ne: null } })
+    .sort({ id: -1 })
+    .select({ id: 1 });
+  return ((maxExisting as any)?.id ?? 0) + 1;
+}
+
 /* ---------------- API ROUTER ---------------- */
 
 const api = express.Router();
+
+api.get("/health", async (req, res) => {
+  res.json({
+    ok: true,
+    mongoReadyState: mongoose.connection.readyState, // 0 disconnected, 1 connected, 2 connecting, 3 disconnecting
+  });
+});
 
 /* ---------------- PRODUCTS (PUBLIC) ---------------- */
 
@@ -116,25 +197,32 @@ api.get("/products", async (req, res) => {
   res.json(products);
 });
 
-/* ---------------- TEMPLATE DATA ---------------- */
+/* ---------------- TEMPLATE DATA (FROM DB) ---------------- */
 
 api.get("/categories", async (req, res) => {
-  res.json((await import("./mock/categories.json")).default);
+  await ensureNumericIds(Category);
+  const categories = await Category.find().sort({ _id: -1 });
+  res.json(categories);
 });
 
 api.get("/banners", async (req, res) => {
-  res.json((await import("./mock/banners.json")).default);
+  await ensureNumericIds(Banner);
+  const banners = await Banner.find().sort({ _id: -1 });
+  res.json(banners.map((b: any) => b.image).filter(Boolean));
 });
 
 api.get("/stations", async (req, res) => {
-  res.json((await import("./mock/stations.json")).default);
+  await ensureNumericIds(Station);
+  const stations = await Station.find().sort({ _id: -1 });
+  res.json(stations);
 });
 
 /* ---------------- ORDERS ---------------- */
 
-// Public orders used by the Mini App UI (keeps the demo format from src/mock/orders.json)
 api.get("/orders", async (req, res) => {
-  res.json((await import("./mock/orders.json")).default);
+  await ensureNumericIds(Order);
+  const orders = await Order.find().sort({ _id: -1 });
+  res.json(orders);
 });
 
 /* ---------------- ADMIN API ---------------- */
@@ -192,8 +280,164 @@ adminApi.delete("/products/:id", async (req, res) => {
 });
 
 adminApi.get("/orders", async (req, res) => {
+  await ensureNumericIds(Order);
   const orders = await Order.find().sort({ _id: -1 });
   res.json(orders);
+});
+
+/* ---------------- ADMIN CRUD (CATEGORIES) ---------------- */
+
+adminApi.get("/categories", async (req, res) => {
+  await ensureNumericIds(Category);
+  res.json(await Category.find().sort({ _id: -1 }));
+});
+
+adminApi.post("/categories", async (req, res) => {
+  await ensureNumericIds(Category);
+  const body = req.body ?? {};
+  const id = typeof body.id === "number" ? body.id : await nextNumericId(Category);
+  const doc = new Category({ ...body, id });
+  await doc.save();
+  res.status(201).json(doc);
+});
+
+adminApi.put("/categories/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  const doc = await Category.findOneAndUpdate({ id }, req.body, { new: true });
+  if (!doc) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.json(doc);
+});
+
+adminApi.delete("/categories/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  await Category.findOneAndDelete({ id });
+  res.json({ success: true });
+});
+
+/* ---------------- ADMIN CRUD (BANNERS) ---------------- */
+
+adminApi.get("/banners", async (req, res) => {
+  await ensureNumericIds(Banner);
+  res.json(await Banner.find().sort({ _id: -1 }));
+});
+
+adminApi.post("/banners", async (req, res) => {
+  await ensureNumericIds(Banner);
+  const body = req.body ?? {};
+  const id = typeof body.id === "number" ? body.id : await nextNumericId(Banner);
+  const doc = new Banner({ ...body, id });
+  await doc.save();
+  res.status(201).json(doc);
+});
+
+adminApi.put("/banners/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  const doc = await Banner.findOneAndUpdate({ id }, req.body, { new: true });
+  if (!doc) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.json(doc);
+});
+
+adminApi.delete("/banners/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  await Banner.findOneAndDelete({ id });
+  res.json({ success: true });
+});
+
+/* ---------------- ADMIN CRUD (STATIONS) ---------------- */
+
+adminApi.get("/stations", async (req, res) => {
+  await ensureNumericIds(Station);
+  res.json(await Station.find().sort({ _id: -1 }));
+});
+
+adminApi.post("/stations", async (req, res) => {
+  await ensureNumericIds(Station);
+  const body = req.body ?? {};
+  const id = typeof body.id === "number" ? body.id : await nextNumericId(Station);
+  const doc = new Station({ ...body, id });
+  await doc.save();
+  res.status(201).json(doc);
+});
+
+adminApi.put("/stations/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  const doc = await Station.findOneAndUpdate({ id }, req.body, { new: true });
+  if (!doc) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.json(doc);
+});
+
+adminApi.delete("/stations/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  await Station.findOneAndDelete({ id });
+  res.json({ success: true });
+});
+
+/* ---------------- ADMIN CRUD (ORDERS) ---------------- */
+
+adminApi.post("/orders", async (req, res) => {
+  await ensureNumericIds(Order);
+  const body = req.body ?? {};
+  const id = typeof body.id === "number" ? body.id : await nextNumericId(Order);
+  const doc = new Order({ ...body, id });
+  await doc.save();
+  res.status(201).json(doc);
+});
+
+adminApi.put("/orders/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  const doc = await Order.findOneAndUpdate({ id }, req.body, { new: true });
+  if (!doc) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.json(doc);
+});
+
+adminApi.delete("/orders/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  await Order.findOneAndDelete({ id });
+  res.json({ success: true });
 });
 
 api.use("/admin", adminApi);

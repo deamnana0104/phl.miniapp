@@ -2,11 +2,6 @@ import { getConfig } from "./template";
 
 const API_URL = getConfig((config) => config.template.apiUrl);
 
-const mockUrls = import.meta.glob<{ default: string }>("../mock/*.json", {
-  query: "url",
-  eager: true,
-});
-
 function joinUrl(base: string, path: string) {
   const normalizedBase = base.replace(/\/+$/, "");
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
@@ -17,13 +12,8 @@ export async function request<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
-  const url = API_URL
-    ? joinUrl(API_URL, path)
-    : mockUrls[`../mock${path}.json`]?.default;
-
-  if (!API_URL) {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
+  if (!API_URL) throw new Error("Missing template.apiUrl in app-config.json");
+  const url = joinUrl(API_URL, path);
   const response = await fetch(url, options);
   return response.json() as T;
 }

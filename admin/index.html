@@ -12,7 +12,7 @@
         <div>
           <h1 class="text-2xl font-semibold">Admin</h1>
           <p class="text-sm text-slate-600">
-            CRUD sản phẩm qua API <code class="px-1 py-0.5 bg-slate-100 rounded">/api/admin/*</code>
+            CRUD dữ liệu qua API <code class="px-1 py-0.5 bg-slate-100 rounded">/api/admin/*</code>
           </p>
         </div>
         <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
@@ -34,7 +34,19 @@
       <main class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
         <section class="lg:col-span-2 rounded-xl border border-slate-200 bg-white">
           <div class="p-4 border-b border-slate-200 flex items-center justify-between">
-            <h2 class="font-semibold">Sản phẩm</h2>
+            <div class="flex items-center gap-2">
+              <h2 class="font-semibold">Dữ liệu</h2>
+              <select
+                id="entitySelect"
+                class="rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
+              >
+                <option value="products">Products</option>
+                <option value="categories">Categories</option>
+                <option value="banners">Banners</option>
+                <option value="stations">Stations</option>
+                <option value="orders">Orders</option>
+              </select>
+            </div>
             <div class="flex gap-2">
               <button
                 id="refreshBtn"
@@ -46,66 +58,35 @@
           </div>
 
           <div class="p-4 overflow-auto">
-            <table class="min-w-full text-sm">
-              <thead>
-                <tr class="text-left text-slate-600">
-                  <th class="py-2 pr-3">ID</th>
-                  <th class="py-2 pr-3">Tên</th>
-                  <th class="py-2 pr-3">Giá</th>
-                  <th class="py-2 pr-3">Danh mục</th>
-                  <th class="py-2 pr-3">Ảnh</th>
-                  <th class="py-2 pr-3"></th>
-                </tr>
-              </thead>
-              <tbody id="productsTbody" class="align-top"></tbody>
-            </table>
-            <div id="productsEmpty" class="hidden text-center text-slate-600 py-10">
-              Chưa có sản phẩm. Tạo bên phải.
+            <div id="tableWrap">
+              <table class="min-w-full text-sm">
+                <thead id="tableThead"></thead>
+                <tbody id="tableTbody" class="align-top"></tbody>
+              </table>
+              <div id="tableEmpty" class="hidden text-center text-slate-600 py-10">
+                Chưa có dữ liệu.
+              </div>
             </div>
           </div>
         </section>
 
         <section class="rounded-xl border border-slate-200 bg-white">
           <div class="p-4 border-b border-slate-200">
-            <h2 class="font-semibold">Tạo / Sửa sản phẩm</h2>
+            <h2 class="font-semibold">Tạo / Sửa</h2>
             <p class="text-xs text-slate-600 mt-1">
-              Nếu bạn không nhập ID, hệ thống sẽ tự tăng ID.
+              Chọn bảng ở bên trái để CRUD. Nếu bạn không nhập ID, hệ thống sẽ tự tăng ID.
             </p>
           </div>
 
-          <form id="productForm" class="p-4 space-y-3">
+          <form id="entityForm" class="p-4 space-y-3">
             <input type="hidden" id="mode" value="create" />
+            <input type="hidden" id="entity" value="products" />
 
             <div>
               <label class="block text-xs font-medium text-slate-700">ID</label>
               <input id="id" type="number" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
             </div>
-            <div>
-              <label class="block text-xs font-medium text-slate-700">categoryId</label>
-              <input id="categoryId" type="number" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-slate-700">Tên</label>
-              <input id="name" required class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="block text-xs font-medium text-slate-700">Giá</label>
-                <input id="price" required type="number" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-700">Giá gốc</label>
-                <input id="originalPrice" type="number" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-              </div>
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-slate-700">Ảnh (URL)</label>
-              <input id="image" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-slate-700">Mô tả</label>
-              <textarea id="detail" rows="4" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
-            </div>
+            <div id="formFields" class="space-y-3"></div>
 
             <div class="flex gap-2">
               <button
@@ -131,18 +112,18 @@
       <section class="mt-6 rounded-xl border border-slate-200 bg-white">
         <div class="p-4 border-b border-slate-200 flex items-center justify-between">
           <div>
-            <h2 class="font-semibold">Orders (MongoDB)</h2>
-            <p class="text-xs text-slate-600 mt-1">Dữ liệu này lấy từ <code class="px-1 py-0.5 bg-slate-100 rounded">/api/admin/orders</code>.</p>
+            <h2 class="font-semibold">JSON preview</h2>
+            <p class="text-xs text-slate-600 mt-1">Xem nhanh response từ API.</p>
           </div>
           <button
-            id="refreshOrdersBtn"
+            id="refreshJsonBtn"
             class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50"
           >
-            Tải orders
+            Tải JSON
           </button>
         </div>
         <div class="p-4 overflow-auto">
-          <pre id="ordersPre" class="text-xs whitespace-pre-wrap text-slate-800"></pre>
+          <pre id="jsonPre" class="text-xs whitespace-pre-wrap text-slate-800"></pre>
         </div>
       </section>
     </div>
