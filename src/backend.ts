@@ -2,12 +2,34 @@ import express from "express";
 import cors from "cors";
 import { config } from "dotenv";
 import mongoose from "mongoose";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 
 config();
 
 const port = process.env.PORT || 10000;
 const app = express();
 const API_PREFIX = "/api";
+
+const UPLOAD_DIR = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname) || ".jpg";
+    cb(null, `admin-${Date.now()}${ext}`);
+  },
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = /^image\//.test(file.mimetype);
+    cb(null, !!ok);
+  },
+});
 
 app.use(express.json());
 
@@ -22,8 +44,8 @@ app.use(
       "https://h5.zdn.vn",
       "http://localhost:3000",
       "http://localhost:5173",
-      "https://pinhoanglong.miniapp.onrender.com",
-      "https://pinhoanglong.miniapp-zu7q.onrender.com",
+      "https://pinhoanglong-miniapp.onrender.com",
+      "https://pinhoanglong-miniapp-zu7q.onrender.com",
       ...corsOriginsFromEnv,
     ],
   })
@@ -106,8 +128,9 @@ const Banner = mongoose.model("Banner", bannerSchema);
 const Station = mongoose.model("Station", stationSchema);
 const Order = mongoose.model("Order", orderSchema);
 
-/* ---------------- ADMIN PAGE ---------------- */
+/* ---------------- STATIC: UPLOADS & ADMIN ---------------- */
 
+app.use("/uploads", express.static(UPLOAD_DIR));
 app.use("/admin", express.static("admin"));
 
 /* ---------------- BASIC ---------------- */
@@ -229,6 +252,15 @@ api.get("/orders", async (req, res) => {
 
 const adminApi = express.Router();
 adminApi.use(requireAdmin);
+
+adminApi.post("/upload", upload.single("file"), (req, res) => {
+  if (!req.file) {
+    res.status(400).json({ error: "No file uploaded" });
+    return;
+  }
+  const base = `${req.protocol}://${req.get("host") || ""}`;
+  res.json({ url: `${base}/uploads/${req.file.filename}` });
+});
 
 adminApi.get("/products", async (req, res) => {
   await ensureProductNumericIds();

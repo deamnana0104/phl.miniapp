@@ -228,8 +228,8 @@ export const ordersState = atomFamily((status: OrderStatus) =>
   atomWithRefresh(async () => {
     // Phía tích hợp thay đổi logic filter server-side nếu cần:
     // const serverSideFilteredData = await requestWithFallback<Order[]>(`/orders?status=${status}`, []);
-    const allMockOrders = await requestWithFallback<Order[]>("/orders", []);
-    const clientSideFilteredData = allMockOrders.filter(
+    const allOrders = await requestWithFallback<Order[]>("/orders", []);
+    const clientSideFilteredData = allOrders.filter(
       (order) => order.status === status
     );
     return clientSideFilteredData;
