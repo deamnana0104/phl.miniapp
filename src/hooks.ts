@@ -11,8 +11,9 @@ import {
 } from "@/state";
 import { Product } from "@/types";
 import { getConfig } from "@/utils/template";
-import { authorize, createOrder, openChat } from "zmp-sdk/apis";
+import { authorize, createOrder, getAccessToken, openChat } from "zmp-sdk/apis";
 import { useAtomCallback } from "jotai/utils";
+import { requestWithAuth } from "@/utils/request";
 
 export function useRealHeight(
   element: MutableRefObject<HTMLDivElement | null>,
@@ -48,6 +49,13 @@ export function useRequestInformation() {
   return async () => {
     const userInfo = await getStoredUserInfo();
     if (!userInfo) {
+      toast(
+        "Ứng dụng cần quyền xem tên và số điện thoại của bạn để tạo đơn hàng và hỗ trợ chăm sóc khách hàng.",
+        {
+          icon: "ℹ",
+          duration: 6000,
+        }
+      );
       await authorize({
         scopes: ["scope.userInfo", "scope.userPhonenumber"],
       }).then(refreshPermissions);
@@ -120,10 +128,10 @@ export function useCheckout() {
 
   return async () => {
     try {
-      await requestInfo();
+      const userInfo = await requestInfo();
       await createOrder({
         amount: totalAmount,
-        desc: "Thanh toán đơn hàng",
+        desc: "Thanh toán đơn hàng Pin Hoàng Long",
         item: cart.map((item) => ({
           id: item.product.id,
           name: item.product.name,
@@ -131,6 +139,27 @@ export function useCheckout() {
           quantity: item.quantity,
         })),
       });
+
+      // Lưu đơn hàng về backend để hiển thị lịch sử đơn hàng trong Mini App
+      // (server sẽ tự xác thực userId từ access_token).
+      try {
+        const { accessToken } = await getAccessToken({});
+        await requestWithAuth("/orders", accessToken, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            items: cart.map((i) => ({ product: i.product, quantity: i.quantity })),
+            total: totalAmount,
+            status: "pending",
+            paymentStatus: "success",
+            createdAt: new Date().toISOString(),
+            note: "",
+          }),
+        });
+      } catch (e) {
+        console.warn("Không thể lưu đơn hàng về server", e);
+      }
+
       setCart([]);
       refreshNewOrders();
       navigate("/orders", {

@@ -15,7 +15,21 @@ export async function request<T>(
   if (!API_URL) throw new Error("Missing template.apiUrl in app-config.json");
   const url = joinUrl(API_URL, path);
   const response = await fetch(url, options);
-  return response.json() as T;
+  const text = await response.text();
+  let data: any;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+  if (!response.ok) {
+    const msg =
+      data && typeof data === "object" && "error" in data
+        ? String((data as any).error)
+        : `HTTP ${response.status}`;
+    throw new Error(msg);
+  }
+  return data as T;
 }
 
 export async function requestWithFallback<T>(
@@ -43,5 +57,19 @@ export async function requestWithPost<P, T>(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
+  });
+}
+
+export async function requestWithAuth<T>(
+  path: string,
+  accessToken: string,
+  options?: RequestInit
+): Promise<T> {
+  return await request<T>(path, {
+    ...options,
+    headers: {
+      ...(options?.headers || {}),
+      access_token: accessToken,
+    },
   });
 }

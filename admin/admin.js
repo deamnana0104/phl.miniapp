@@ -1,4 +1,4 @@
-const API = "https://pinhoanglong.miniapp.onrender.com"
+const API = "https://pinhoanglong-miniapp.onrender.com"
 
 async function loadProducts(){
 

@@ -3,21 +3,22 @@
 @tailwind utilities;
 
 :root {
-  --background: #f7f7f8;
-  --foreground: #0d0d0d;
-  --section: #ffffff;
-  --primary: #52b361;
-  --primaryForeground: #ffffff;
+  /* Brand: Vàng - Đen (Pin Hoàng Long) */
+  --background: #0b0b0c;
+  --foreground: #f5f5f5;
+  --section: #121214;
+  --primary: #fbbf24; /* amber-400 */
+  --primaryForeground: #0b0b0c;
   --inactive: #a9adb2;
   --tabIndicator: #212121;
-  --subtitle: #6f7071;
+  --subtitle: #b7b7b7;
   --danger: #f50000;
-  --skeleton: #e9e9e9;
+  --skeleton: #242428;
 
   --zaui-light-button-primary-background: var(--primary);
   --zaui-light-button-primary-text: var(--primaryForeground);
-  --zaui-light-button-secondary-background: #d1f0db;
-  --zaui-light-button-secondary-text: #135328;
+  --zaui-light-button-secondary-background: #2a2a2f;
+  --zaui-light-button-secondary-text: #f5f5f5;
   --zaui-light-button-tertiary-text: var(--foreground);
   --zaui-light-button-primary-background-pressed: var(
     --zaui-light-button-primary-background

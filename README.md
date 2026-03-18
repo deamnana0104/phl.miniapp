@@ -38,6 +38,21 @@ A template for vendors to sale their products on the online market. It provides 
    ```
 1. **Open** `localhost:3000` in your browser and start coding 🔥
 
+### Backend (Pin Hoàng Long)
+
+1. Tạo file môi trường:
+   - Copy `.env.example` → `.env`
+2. Thiết lập các biến quan trọng:
+   - `MONGO_URL`: MongoDB connection string
+   - `ADMIN_TOKEN`: token để truy cập trang `/admin` và gọi các API `/api/admin/*`
+   - `ZALO_APP_SECRET`: app secret để server xác thực `access_token` (dùng khi gọi `https://graph.zalo.me/v2.0/me`)
+3. Chạy backend:
+   ```bash
+   npm run backend
+   ```
+
+> Lưu ý: các API đơn hàng của user dùng header `access_token` để server xác định đúng `zaloUserId` (không tin dữ liệu client gửi lên).
+
 ### Using Zalo Mini App Studio
 
 This template is built using **Vite 5.x**, which is **not compatible** with Zalo Mini App Studio.
@@ -118,6 +133,8 @@ The template contains a follow OA widget:
 <img src="./docs/customize-theme.webp" alt="Customize theme" width="250" align="right">
 
 Adjust CSS variables in `src/css/tailwind.scss` as needed to fit your desired branding.
+
+Màu chủ đạo Pin Hoàng Long đã được chỉnh theo **vàng–đen** trong file này.
 
 ```css
 :root {

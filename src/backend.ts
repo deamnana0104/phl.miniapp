@@ -5,12 +5,16 @@ import mongoose from "mongoose";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 
 config();
 
 const port = process.env.PORT || 10000;
 const app = express();
 const API_PREFIX = "/api";
+
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
 
 const UPLOAD_DIR = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -32,6 +36,13 @@ const upload = multer({
 });
 
 app.use(express.json());
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  next();
+});
 
 const corsOriginsFromEnv = (process.env.CORS_ORIGINS ?? "")
   .split(",")
@@ -211,6 +222,21 @@ api.get("/health", async (req, res) => {
   });
 });
 
+function requireMongoReady(
+  _req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) {
+  if (mongoose.connection.readyState !== 1) {
+    res.status(503).json({
+      error: "MongoDB is not connected",
+      mongoReadyState: mongoose.connection.readyState,
+    });
+    return;
+  }
+  next();
+}
+
 /* ---------------- PRODUCTS (PUBLIC) ---------------- */
 
 // GET products
@@ -244,14 +270,100 @@ api.get("/stations", async (req, res) => {
 
 api.get("/orders", async (req, res) => {
   await ensureNumericIds(Order);
-  const orders = await Order.find().sort({ _id: -1 });
+  const zaloUserId = String(req.query.zaloUserId ?? "").trim();
+
+  // Không trả toàn bộ đơn hàng công khai để tránh lộ dữ liệu người dùng khác.
+  if (!zaloUserId) {
+    res.json([]);
+    return;
+  }
+
+  const orders = await Order.find({ zaloUserId }).sort({ _id: -1 });
   res.json(orders);
+});
+
+async function getZaloUserIdFromAccessToken(accessToken: string) {
+  const appSecret = process.env.ZALO_APP_SECRET;
+  if (!appSecret) {
+    throw new Error("ZALO_APP_SECRET is not configured");
+  }
+  const appsecret_proof = crypto
+    .createHmac("sha256", appSecret)
+    .update(accessToken)
+    .digest("hex");
+
+  const r = await fetch("https://graph.zalo.me/v2.0/me", {
+    method: "GET",
+    headers: {
+      access_token: accessToken,
+      appsecret_proof,
+    } as any,
+  });
+  const text = await r.text();
+  let data: any;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+  if (!r.ok || !data || data.error) {
+    const msg =
+      data && typeof data === "object" && data.message
+        ? String(data.message)
+        : "Unauthorized";
+    throw new Error(msg);
+  }
+  const id = String(data.id ?? "").trim();
+  if (!id) throw new Error("Missing user id");
+  return id;
+}
+
+async function requireZaloUser(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) {
+  const accessToken = String(req.header("access_token") ?? "").trim();
+  if (!accessToken) {
+    res.status(401).json({ error: "Missing access_token" });
+    return;
+  }
+  try {
+    (req as any).zaloUserId = await getZaloUserIdFromAccessToken(accessToken);
+    next();
+  } catch (e: any) {
+    res.status(401).json({ error: e?.message || "Unauthorized" });
+  }
+}
+
+api.get("/orders/my", requireZaloUser, async (req, res) => {
+  await ensureNumericIds(Order);
+  const zaloUserId = String((req as any).zaloUserId ?? "");
+  const orders = await Order.find({ zaloUserId }).sort({ _id: -1 });
+  res.json(orders);
+});
+
+api.post("/orders", requireZaloUser, async (req, res) => {
+  await ensureNumericIds(Order);
+  const zaloUserId = String((req as any).zaloUserId ?? "");
+  const body = req.body ?? {};
+  const id = typeof body.id === "number" ? body.id : await nextNumericId(Order);
+
+  const doc = new Order({
+    ...body,
+    id,
+    zaloUserId,
+    createdAt: body.createdAt ? new Date(body.createdAt) : new Date(),
+  });
+  await doc.save();
+  res.status(201).json(doc);
 });
 
 /* ---------------- ADMIN API ---------------- */
 
 const adminApi = express.Router();
 adminApi.use(requireAdmin);
+adminApi.use(requireMongoReady);
 
 adminApi.post("/upload", upload.single("file"), (req, res) => {
   if (!req.file) {
@@ -479,4 +591,11 @@ app.use(API_PREFIX, api);
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
+});
+
+/* ---------------- ERROR HANDLER ---------------- */
+
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const message = err?.message ? String(err.message) : "Internal Server Error";
+  res.status(500).json({ error: message });
 });

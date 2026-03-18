@@ -23,12 +23,14 @@ import {
   getLocation,
   getPhoneNumber,
   getSetting,
+  getAccessToken,
   getUserInfo,
 } from "zmp-sdk/apis";
 import toast from "react-hot-toast";
 import { calculateDistance } from "./utils/location";
 import { formatDistant } from "./utils/format";
 import CONFIG from "./config";
+import { requestWithAuth } from "./utils/request";
 
 export const userInfoKeyState = atom(0);
 
@@ -77,17 +79,18 @@ export const phoneState = atom(async () => {
     // Phía tích hợp làm theo hướng dẫn tại https://mini.zalo.me/documents/api/getPhoneNumber/ để chuyển đổi token thành số điện thoại người dùng ở server.
     // phone = await decodeToken(token);
 
-    // Các bước bên dưới để demo chức năng, phía tích hợp có thể bỏ đi sau.
-    toast(
-      "Đã lấy được token chứa số điện thoại người dùng. Phía tích hợp cần decode token này ở server. Giả lập số điện thoại 0912345678...",
-      {
-        icon: "ℹ",
-        duration: 10000,
-      }
-    );
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    phone = "0912345678";
-    // End demo
+    const isDev = !window.ZJSBridge;
+    if (isDev) {
+      toast(
+        "Đã lấy được token chứa số điện thoại người dùng (demo). Khi triển khai thật cần decode token ở server.",
+        {
+          icon: "ℹ",
+          duration: 6000,
+        }
+      );
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      phone = "0912345678";
+    }
   } catch (error) {
     console.warn(error);
   }
@@ -172,24 +175,29 @@ export const productsByCategoryState = atomFamily((id: String) =>
 export const stationsState = atom(async () => {
   let location: Location | undefined;
   try {
+    toast(
+      "Ứng dụng cần quyền truy cập vị trí của bạn để gợi ý điểm giao hàng/cửa hàng Pin Hoàng Long gần nhất.",
+      {
+        icon: "ℹ",
+        duration: 6000,
+      }
+    );
     const { token } = await getLocation({});
     // Phía tích hợp làm theo hướng dẫn tại https://mini.zalo.me/documents/api/getLocation/ để chuyển đổi token thành thông tin vị trí người dùng ở server.
     // location = await decodeToken(token);
 
-    // Các bước bên dưới để demo chức năng, phía tích hợp có thể bỏ đi sau.
-    toast(
-      "Đã lấy được token chứa thông tin vị trí người dùng. Phía tích hợp cần decode token này ở server. Giả lập vị trí tại VNG Campus...",
-      {
+    const isDev = !window.ZJSBridge;
+    if (isDev) {
+      toast("Đã lấy được token chứa thông tin vị trí người dùng (demo).", {
         icon: "ℹ",
-        duration: 10000,
-      }
-    );
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    location = {
-      lat: 10.773756,
-      lng: 106.689247,
-    };
-    // End demo
+        duration: 6000,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      location = {
+        lat: 10.773756,
+        lng: 106.689247,
+      };
+    }
   } catch (error) {
     console.warn(error);
   }
@@ -226,9 +234,19 @@ export const shippingAddressState = atomWithStorage<
 
 export const ordersState = atomFamily((status: OrderStatus) =>
   atomWithRefresh(async () => {
-    // Phía tích hợp thay đổi logic filter server-side nếu cần:
-    // const serverSideFilteredData = await requestWithFallback<Order[]>(`/orders?status=${status}`, []);
-    const allOrders = await requestWithFallback<Order[]>("/orders", []);
+    const isDev = !window.ZJSBridge;
+    if (isDev) {
+      // Dev: fallback về API cũ để dễ test bằng dữ liệu admin tạo sẵn.
+      const allOrders = await requestWithFallback<Order[]>("/orders", []);
+      return allOrders.filter((order) => order.status === status);
+    }
+
+    // Prod: chỉ truy xuất đơn hàng của chính user thông qua access_token.
+    const { accessToken } = await getAccessToken({});
+    const allOrders = await requestWithAuth<Order[]>(
+      "/orders/my",
+      accessToken
+    );
     const clientSideFilteredData = allOrders.filter(
       (order) => order.status === status
     );
