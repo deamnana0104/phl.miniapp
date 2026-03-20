@@ -1,6 +1,6 @@
 import { atom } from "jotai";
+import { atomFamily } from 'jotai-family';
 import {
-  atomFamily,
   atomWithRefresh,
   atomWithStorage,
   loadable,
@@ -97,9 +97,13 @@ export const phoneState = atom(async () => {
   return phone;
 });
 
-export const bannersState = atom(() =>
-  requestWithFallback<string[]>("/banners", [])
-);
+export const bannersState = atom(async () => {
+  const banners = await requestWithFallback<{ id: number; image: string }[]>(
+    "/banners",
+    []
+  );
+  return banners.map((b) => b.image);
+});
 
 export const tabsState = atom(["Tất cả", "Nam", "Nữ", "Trẻ em"]);
 

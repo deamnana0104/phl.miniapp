@@ -22,4 +22,9 @@ if (!window.APP_CONFIG) {
 
 // Mount the app
 const root = createRoot(document.getElementById("app")!);
-root.render(createElement(RouterProvider, { router }));
+root.render(createElement(RouterProvider, { 
+  router,
+  future: {
+    v7_startTransition: true,
+  }
+}));

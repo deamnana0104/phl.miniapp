@@ -16,7 +16,11 @@ async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
   headers.set("Accept", "application/json");
   if (token) headers.set("x-admin-token", token);
-  if (options.body && !(options.body instanceof FormData) && !headers.get("Content-Type")) headers.set("Content-Type", "application/json");
+  
+  if (options.body && !(options.body instanceof FormData) && !headers.get("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
   const res = await fetch(path, { ...options, headers });
   const text = await res.text();
   let data;
@@ -25,23 +29,19 @@ async function api(path, options = {}) {
   } catch {
     data = text;
   }
-  if (!res.ok) throw new Error(typeof data === "object" && data && data.error ? data.error : `HTTP ${res.status}`);
+  
+  if (!res.ok) {
+    if (res.status === 401) {
+      logout();
+      throw new Error("Phiên làm việc hết hạn hoặc không có quyền truy cập.");
+    }
+    throw new Error(typeof data === "object" && data && data.error ? data.error : `Lỗi hệ thống (${res.status})`);
+  }
   return data;
 }
 
-async function uploadFile(file) {
-  const fd = new FormData();
-  fd.append("file", file);
-  const r = await api("/api/admin/upload", { method: "POST", body: fd });
-  return r.url;
-}
-
 function formatMoney(v) {
-  try {
-    return new Intl.NumberFormat("vi-VN").format(Number(v || 0));
-  } catch {
-    return String(v ?? "");
-  }
+  return new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(Number(v || 0));
 }
 
 function escapeHtml(s) {
@@ -52,25 +52,61 @@ function escapeHtml(s) {
     .replaceAll('"', "&quot;");
 }
 
-// --- Routing ---
+// --- AUTH ---
+function login() {
+  const token = $("adminTokenInput").value.trim();
+  if (!token) return alert("Vui lòng nhập token!");
+  setToken(token);
+  checkAuth();
+}
+
+function logout() {
+  setToken("");
+  location.reload();
+}
+
+async function checkAuth() {
+  const token = getToken();
+  if (!token) {
+    $("authModal").classList.remove("hidden");
+    $("adminLayout").classList.add("hidden");
+    return;
+  }
+
+  try {
+    // Gọi thử 1 API admin để check token
+    await api("/api/admin/products");
+    $("authModal").classList.add("hidden");
+    $("adminLayout").classList.remove("hidden");
+    initRouter();
+  } catch (e) {
+    setToken("");
+    $("authModal").classList.remove("hidden");
+    $("adminLayout").classList.add("hidden");
+    alert("Token không chính xác hoặc đã hết hạn!");
+  }
+}
+
+// --- ROUTING ---
 function getPage() {
-  const hash = (location.hash || "#dashboard").slice(1);
-  return hash || "dashboard";
+  return (location.hash || "#dashboard").slice(1);
 }
 
 function showPage(pageId) {
   document.querySelectorAll(".page").forEach((el) => el.classList.add("hidden"));
   const el = $(`page${pageId.charAt(0).toUpperCase() + pageId.slice(1)}`);
   if (el) el.classList.remove("hidden");
+  
   document.querySelectorAll(".sidebar-link").forEach((a) => {
     a.classList.toggle("active", a.dataset.page === pageId);
   });
+
   if (pageId === "dashboard") loadDashboardStats();
   else if (pageId === "products") loadProducts();
   else if (pageId === "categories") loadCategories();
+  else if (pageId === "orders") loadOrders();
   else if (pageId === "banners") loadBanners();
   else if (pageId === "stations") loadStations();
-  else if (pageId === "orders") loadOrders();
 }
 
 function initRouter() {
@@ -78,418 +114,479 @@ function initRouter() {
   showPage(getPage());
 }
 
-// --- Dashboard stats ---
+// --- DASHBOARD ---
 async function loadDashboardStats() {
-  const els = { products: $("statProducts"), categories: $("statCategories"), orders: $("statOrders"), banners: $("statBanners") };
-  ["products", "categories", "orders", "banners"].forEach((k) => (els[k].textContent = "-"));
+  const stats = ["Products", "Orders", "Categories", "Banners"];
+  stats.forEach(s => $(`stat${s}`).textContent = "...");
+  
   try {
-    const [products, categories, orders, banners] = await Promise.all([
+    const [p, o, c, b] = await Promise.all([
       api("/api/admin/products"),
-      api("/api/admin/categories"),
       api("/api/admin/orders"),
+      api("/api/admin/categories"),
       api("/api/admin/banners"),
     ]);
-    els.products.textContent = products.length;
-    els.categories.textContent = categories.length;
-    els.orders.textContent = orders.length;
-    els.banners.textContent = banners.length;
+    $("statProducts").textContent = p.length;
+    $("statOrders").textContent = o.length;
+    $("statCategories").textContent = c.length;
+    $("statBanners").textContent = b.length;
   } catch (e) {
-    ["products", "categories", "orders", "banners"].forEach((k) => (els[k].textContent = "Lỗi"));
+    console.error(e);
   }
 }
 
-// --- Products ---
+// --- PRODUCTS ---
+let categoriesCache = [];
 async function loadProducts() {
-  const tbody = $("productsTbody");
-  const empty = $("productsEmpty");
-  tbody.innerHTML = "";
-  empty.classList.add("hidden");
+  const list = $("productList");
+  list.innerHTML = '<tr><td colspan="6" class="p-8 text-center text-gray-500">Đang tải...</td></tr>';
+  
   try {
-    const list = await api("/api/admin/products");
-    if (!list.length) {
-      empty.classList.remove("hidden");
-      return;
-    }
-    list.forEach((p) => {
+    const [products, categories] = await Promise.all([
+      api("/api/admin/products"),
+      api("/api/admin/categories")
+    ]);
+    categoriesCache = categories;
+    list.innerHTML = "";
+    
+    products.forEach(p => {
+      const cat = categories.find(c => c.id === p.categoryId);
       const tr = document.createElement("tr");
-      tr.className = "border-t border-slate-100";
+      tr.className = "border-b hover:bg-gray-50 transition";
       tr.innerHTML = `
-        <td class="px-4 py-3"><img src="${escapeHtml(p.image || "")}" alt="" class="w-12 h-12 object-cover rounded-lg" onerror="this.style.display='none'"/></td>
-        <td class="px-4 py-3 font-medium">${escapeHtml(p.name || "")}</td>
-        <td class="px-4 py-3">${formatMoney(p.price)}</td>
-        <td class="px-4 py-3">${p.categoryId ?? ""}</td>
-        <td class="px-4 py-3">
-          <button type="button" class="edit-btn text-amber-600 hover:underline mr-2">Sửa</button>
-          <button type="button" class="del-btn text-red-600 hover:underline">Xoá</button>
+        <td class="p-4 text-sm text-gray-500">#${p.id}</td>
+        <td class="p-4"><img src="${p.image}" class="w-12 h-12 object-cover rounded shadow-sm"></td>
+        <td class="p-4 font-medium">${escapeHtml(p.name)}</td>
+        <td class="p-4 text-blue-600 font-bold">${formatMoney(p.price)}</td>
+        <td class="p-4"><span class="bg-gray-100 px-2 py-1 rounded text-xs">${cat ? escapeHtml(cat.name) : 'N/A'}</span></td>
+        <td class="p-4">
+          <button onclick='openProductModal(${JSON.stringify(p).replace(/'/g, "&apos;")})' class="text-blue-600 hover:text-blue-800 mr-3"><i class="fa-solid fa-pen-to-square"></i></button>
+          <button onclick="deleteProduct(${p.id})" class="text-red-600 hover:text-red-800"><i class="fa-solid fa-trash"></i></button>
         </td>
       `;
-      tr.querySelector(".edit-btn").addEventListener("click", () => openProductForm(p));
-      tr.querySelector(".del-btn").addEventListener("click", () => deleteProduct(p));
-      tbody.appendChild(tr);
+      list.appendChild(tr);
     });
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="5" class="px-4 py-6 text-red-600">${escapeHtml(e.message)}</td></tr>`;
+    list.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-red-500">${e.message}</td></tr>`;
   }
 }
 
-function openProductForm(item = null) {
-  $("formEntity").value = "products";
-  $("formMode").value = item ? "edit" : "create";
-  $("formId").value = item ? item.id : "";
-  $("modalTitle").textContent = item ? "Sửa sản phẩm" : "Thêm sản phẩm";
-  $("formBody").innerHTML = `
-    <div><label class="block text-sm font-medium text-slate-700 mb-1">Tên *</label><input type="text" name="name" value="${escapeHtml(item?.name || "")}" required class="w-full rounded-lg border border-slate-200 px-3 py-2"/></div>
-    <div><label class="block text-sm font-medium text-slate-700 mb-1">Danh mục (ID)</label><input type="number" name="categoryId" value="${item?.categoryId ?? ""}" class="w-full rounded-lg border border-slate-200 px-3 py-2"/></div>
-    <div><label class="block text-sm font-medium text-slate-700 mb-1">Giá *</label><input type="number" name="price" value="${item?.price ?? ""}" required class="w-full rounded-lg border border-slate-200 px-3 py-2"/></div>
-    <div><label class="block text-sm font-medium text-slate-700 mb-1">Giá gốc</label><input type="number" name="originalPrice" value="${item?.originalPrice ?? ""}" class="w-full rounded-lg border border-slate-200 px-3 py-2"/></div>
-    <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">Ảnh</label>
-      <div class="flex gap-2">
-        <input type="text" name="image" value="${escapeHtml(item?.image || "")}" placeholder="URL hoặc upload" class="flex-1 rounded-lg border border-slate-200 px-3 py-2"/>
-        <label class="btn-upload cursor-pointer rounded-lg bg-amber-500 text-slate-900 px-3 py-2 text-sm font-medium flex items-center">Chọn ảnh<input type="file" accept="image/*" class="hidden" data-for="image"/></label>
-      </div>
-    </div>
-    <div><label class="block text-sm font-medium text-slate-700 mb-1">Mô tả</label><textarea name="detail" rows="3" class="w-full rounded-lg border border-slate-200 px-3 py-2">${escapeHtml(item?.detail || "")}</textarea></div>
-  `;
-  bindUploadInForm();
-  $("modalOverlay").classList.remove("hidden");
-  $("modalOverlay").classList.add("flex");
+function openProductModal(p = null) {
+  const title = p ? "Chỉnh sửa Sản phẩm" : "Thêm Sản phẩm Mới";
+  $("productModalTitle").textContent = title;
+  $("p_id").value = p ? p.id : "";
+  $("p_name").value = p ? p.name : "";
+  $("p_price").value = p ? p.price : "";
+  $("p_originalPrice").value = p ? (p.originalPrice || "") : "";
+  $("p_image").value = p ? p.image : "";
+  $("p_detail").value = p ? (p.detail || "") : "";
+  
+  const catSelect = $("p_categoryId");
+  catSelect.innerHTML = categoriesCache.map(c => `<option value="${c.id}" ${p && p.categoryId === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join("");
+  
+  updateImagePreview("p_image", "p_image_preview");
+  $("productModal").classList.remove("hidden");
 }
 
-async function deleteProduct(p) {
-  if (!confirm(`Xoá sản phẩm "${p.name}"?`)) return;
+function closeProductModal() {
+  $("productModal").classList.add("hidden");
+  $("productForm").reset();
+}
+
+$("productForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const id = $("p_id").value;
+  const data = {
+    name: $("p_name").value,
+    price: Number($("p_price").value),
+    originalPrice: Number($("p_originalPrice").value) || undefined,
+    categoryId: Number($("p_categoryId").value),
+    image: $("p_image").value,
+    detail: $("p_detail").value,
+  };
+
   try {
-    await api(`/api/admin/products/${p.id}`, { method: "DELETE" });
+    if (id) {
+      await api(`/api/admin/products/${id}`, { method: "PUT", body: JSON.stringify(data) });
+    } else {
+      await api("/api/admin/products", { method: "POST", body: JSON.stringify(data) });
+    }
+    closeProductModal();
+    loadProducts();
+  } catch (e) {
+    alert(e.message);
+  }
+};
+
+async function deleteProduct(id) {
+  if (!confirm("Bạn có chắc muốn xoá sản phẩm này?")) return;
+  try {
+    await api(`/api/admin/products/${id}`, { method: "DELETE" });
     loadProducts();
   } catch (e) {
     alert(e.message);
   }
 }
 
-// --- Categories ---
+// --- CATEGORIES ---
 async function loadCategories() {
-  const tbody = $("categoriesTbody");
-  const empty = $("categoriesEmpty");
-  tbody.innerHTML = "";
-  empty.classList.add("hidden");
+  const list = $("categoryList");
+  list.innerHTML = "";
   try {
-    const list = await api("/api/admin/categories");
-    if (!list.length) {
-      empty.classList.remove("hidden");
-      return;
-    }
-    list.forEach((c) => {
+    const categories = await api("/api/admin/categories");
+    categoriesCache = categories;
+    categories.forEach(c => {
       const tr = document.createElement("tr");
-      tr.className = "border-t border-slate-100";
+      tr.className = "border-b hover:bg-gray-50 transition";
       tr.innerHTML = `
-        <td class="px-4 py-3"><img src="${escapeHtml(c.image || "")}" alt="" class="w-12 h-12 object-cover rounded-lg" onerror="this.style.display='none'"/></td>
-        <td class="px-4 py-3 font-medium">${escapeHtml(c.name || "")}</td>
-        <td class="px-4 py-3">
-          <button type="button" class="edit-btn text-amber-600 hover:underline mr-2">Sửa</button>
-          <button type="button" class="del-btn text-red-600 hover:underline">Xoá</button>
+        <td class="p-4 text-sm text-gray-500">#${c.id}</td>
+        <td class="p-4"><img src="${c.image}" class="w-10 h-10 object-cover rounded-full border"></td>
+        <td class="p-4 font-medium">${escapeHtml(c.name)}</td>
+        <td class="p-4">
+          <button onclick='openCategoryModal(${JSON.stringify(c).replace(/'/g, "&apos;")})' class="text-blue-600 hover:text-blue-800 mr-3"><i class="fa-solid fa-pen-to-square"></i></button>
+          <button onclick="deleteCategory(${c.id})" class="text-red-600 hover:text-red-800"><i class="fa-solid fa-trash"></i></button>
         </td>
       `;
-      tr.querySelector(".edit-btn").addEventListener("click", () => openCategoryForm(c));
-      tr.querySelector(".del-btn").addEventListener("click", () => deleteCategory(c));
-      tbody.appendChild(tr);
+      list.appendChild(tr);
     });
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="3" class="px-4 py-6 text-red-600">${escapeHtml(e.message)}</td></tr>`;
+    console.error(e);
   }
 }
 
-function openCategoryForm(item = null) {
-  $("formEntity").value = "categories";
-  $("formMode").value = item ? "edit" : "create";
-  $("formId").value = item ? item.id : "";
-  $("modalTitle").textContent = item ? "Sửa danh mục" : "Thêm danh mục";
-  $("formBody").innerHTML = `
-    <div><label class="block text-sm font-medium text-slate-700 mb-1">Tên *</label><input type="text" name="name" value="${escapeHtml(item?.name || "")}" required class="w-full rounded-lg border border-slate-200 px-3 py-2"/></div>
-    <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">Ảnh</label>
-      <div class="flex gap-2">
-        <input type="text" name="image" value="${escapeHtml(item?.image || "")}" class="flex-1 rounded-lg border border-slate-200 px-3 py-2"/>
-        <label class="btn-upload cursor-pointer rounded-lg bg-amber-500 text-slate-900 px-3 py-2 text-sm font-medium flex items-center">Chọn ảnh<input type="file" accept="image/*" class="hidden" data-for="image"/></label>
-      </div>
-    </div>
-  `;
-  bindUploadInForm();
-  $("modalOverlay").classList.remove("hidden");
-  $("modalOverlay").classList.add("flex");
+function openCategoryModal(c = null) {
+  $("categoryModalTitle").textContent = c ? "Chỉnh sửa Danh mục" : "Thêm Danh mục";
+  $("c_id").value = c ? c.id : "";
+  $("c_name").value = c ? c.name : "";
+  $("c_image").value = c ? c.image : "";
+  $("categoryModal").classList.remove("hidden");
 }
 
-async function deleteCategory(c) {
-  if (!confirm(`Xoá danh mục "${c.name}"?`)) return;
+function closeCategoryModal() {
+  $("categoryModal").classList.add("hidden");
+  $("categoryForm").reset();
+}
+
+$("categoryForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const id = $("c_id").value;
+  const data = {
+    name: $("c_name").value,
+    image: $("c_image").value,
+  };
   try {
-    await api(`/api/admin/categories/${c.id}`, { method: "DELETE" });
+    if (id) {
+      await api(`/api/admin/categories/${id}`, { method: "PUT", body: JSON.stringify(data) });
+    } else {
+      await api("/api/admin/categories", { method: "POST", body: JSON.stringify(data) });
+    }
+    closeCategoryModal();
+    loadCategories();
+  } catch (e) {
+    alert(e.message);
+  }
+};
+
+async function deleteCategory(id) {
+  if (!confirm("Xoá danh mục sẽ ảnh hưởng đến hiển thị sản phẩm. Tiếp tục?")) return;
+  try {
+    await api(`/api/admin/categories/${id}`, { method: "DELETE" });
     loadCategories();
   } catch (e) {
     alert(e.message);
   }
 }
 
-// --- Banners ---
-async function loadBanners() {
-  const tbody = $("bannersTbody");
-  const empty = $("bannersEmpty");
-  tbody.innerHTML = "";
-  empty.classList.add("hidden");
+// --- ORDERS ---
+let ordersCache = [];
+
+async function loadOrders() {
+  const list = $("orderList");
+  list.innerHTML = '<tr><td colspan="7" class="p-8 text-center text-gray-500">Đang tải...</td></tr>';
   try {
-    const list = await api("/api/admin/banners");
-    if (!list.length) {
-      empty.classList.remove("hidden");
-      return;
-    }
-    list.forEach((b) => {
+    const orders = await api("/api/admin/orders");
+    ordersCache = orders;
+    list.innerHTML = "";
+    orders.forEach(o => {
       const tr = document.createElement("tr");
-      tr.className = "border-t border-slate-100";
+      tr.className = "border-b hover:bg-gray-50 transition text-sm";
+      const statusColor = o.status === 'completed' ? 'text-green-600' : (o.status === 'shipping' ? 'text-blue-600' : 'text-orange-600');
+      
+      // Dropdown để đổi trạng thái nhanh
+      const statusSelect = `
+        <select onchange="updateOrderStatus(${o.id}, this.value)" class="border rounded px-2 py-1 text-xs font-medium ${statusColor} outline-none focus:ring-1 focus:ring-blue-500">
+          <option value="pending" ${o.status === 'pending' ? 'selected' : ''}>Chờ xử lý</option>
+          <option value="shipping" ${o.status === 'shipping' ? 'selected' : ''}>Đang giao</option>
+          <option value="completed" ${o.status === 'completed' ? 'selected' : ''}>Hoàn thành</option>
+        </select>
+      `;
+
       tr.innerHTML = `
-        <td class="px-4 py-3"><img src="${escapeHtml(b.image || "")}" alt="" class="w-32 h-14 object-cover rounded-lg" onerror="this.style.display='none'"/></td>
-        <td class="px-4 py-3">
-          <button type="button" class="edit-btn text-amber-600 hover:underline mr-2">Sửa</button>
-          <button type="button" class="del-btn text-red-600 hover:underline">Xoá</button>
+        <td class="p-4">#${o.id}</td>
+        <td class="p-4 font-mono text-xs">${o.zaloUserId}</td>
+        <td class="p-4 text-gray-500">${new Date(o.createdAt).toLocaleString('vi-VN')}</td>
+        <td class="p-4 font-bold text-blue-600">${formatMoney(o.total)}</td>
+        <td class="p-4">${statusSelect}</td>
+        <td class="p-4">
+           <span class="px-2 py-1 rounded text-xs ${o.paymentStatus === 'success' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}">
+            ${o.paymentStatus}
+           </span>
+        </td>
+        <td class="p-4">
+          <button onclick="viewOrder(${o.id})" class="text-blue-600 hover:underline flex items-center gap-1"><i class="fa-solid fa-eye"></i> Chi tiết</button>
         </td>
       `;
-      tr.querySelector(".edit-btn").addEventListener("click", () => openBannerForm(b));
-      tr.querySelector(".del-btn").addEventListener("click", () => deleteBanner(b));
-      tbody.appendChild(tr);
+      list.appendChild(tr);
     });
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="2" class="px-4 py-6 text-red-600">${escapeHtml(e.message)}</td></tr>`;
+    list.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-red-500">${e.message}</td></tr>`;
   }
 }
 
-function openBannerForm(item = null) {
-  $("formEntity").value = "banners";
-  $("formMode").value = item ? "edit" : "create";
-  $("formId").value = item ? item.id : "";
-  $("modalTitle").textContent = item ? "Sửa banner" : "Thêm banner";
-  $("formBody").innerHTML = `
-    <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">Ảnh *</label>
-      <div class="flex gap-2">
-        <input type="text" name="image" value="${escapeHtml(item?.image || "")}" required class="flex-1 rounded-lg border border-slate-200 px-3 py-2"/>
-        <label class="btn-upload cursor-pointer rounded-lg bg-amber-500 text-slate-900 px-3 py-2 text-sm font-medium flex items-center">Chọn ảnh<input type="file" accept="image/*" class="hidden" data-for="image"/></label>
+async function updateOrderStatus(id, newStatus) {
+  try {
+    await api(`/api/admin/orders/${id}`, { 
+      method: "PUT", 
+      body: JSON.stringify({ status: newStatus }) 
+    });
+    // Không cần reload toàn bộ list, chỉ cần cập nhật màu sắc (đã xử lý qua reload cho chắc chắn)
+    loadOrders();
+  } catch (e) {
+    alert("Lỗi cập nhật trạng thái: " + e.message);
+    loadOrders(); // Revert UI
+  }
+}
+
+function viewOrder(id) {
+  const order = ordersCache.find(o => o.id === id);
+  if (!order) return;
+
+  $("o_id").textContent = `#${order.id}`;
+  
+  const itemsHtml = (order.items || []).map(item => `
+    <div class="flex items-center gap-4 border-b pb-4">
+      <img src="${item.product?.image || ''}" class="w-16 h-16 object-cover rounded border">
+      <div class="flex-1">
+        <p class="font-medium">${escapeHtml(item.product?.name || 'Sản phẩm không xác định')}</p>
+        <p class="text-sm text-gray-500">Đơn giá: ${formatMoney(item.product?.price)}</p>
+      </div>
+      <div class="text-right">
+        <p class="text-sm text-gray-500">x${item.quantity}</p>
+        <p class="font-bold text-blue-600">${formatMoney((item.product?.price || 0) * item.quantity)}</p>
+      </div>
+    </div>
+  `).join('');
+
+  const delivery = order.delivery || {};
+  const addressHtml = `
+    <div class="bg-gray-50 p-4 rounded-lg">
+      <h3 class="font-bold mb-2 border-b pb-2">Thông tin giao hàng</h3>
+      <p class="text-sm mb-1"><span class="text-gray-500">Người nhận:</span> ${escapeHtml(delivery.name || 'N/A')}</p>
+      <p class="text-sm mb-1"><span class="text-gray-500">SĐT:</span> ${escapeHtml(delivery.phone || 'N/A')}</p>
+      <p class="text-sm mb-1"><span class="text-gray-500">Địa chỉ:</span> ${escapeHtml(delivery.address || 'N/A')}</p>
+      <p class="text-sm"><span class="text-gray-500">Ghi chú:</span> ${escapeHtml(order.note || 'Không có')}</p>
+    </div>
+  `;
+
+  const summaryHtml = `
+    <div class="bg-blue-50 p-4 rounded-lg mt-4">
+      <div class="flex justify-between mb-2 text-sm">
+        <span class="text-gray-600">Trạng thái thanh toán:</span>
+        <span class="font-medium uppercase ${order.paymentStatus === 'success' ? 'text-green-600' : 'text-gray-600'}">${order.paymentStatus}</span>
+      </div>
+      <div class="flex justify-between mb-2 text-sm">
+        <span class="text-gray-600">Trạng thái đơn hàng:</span>
+        <span class="font-medium uppercase">${order.status}</span>
+      </div>
+      <div class="flex justify-between font-bold text-lg border-t pt-2 mt-2">
+        <span>Tổng cộng:</span>
+        <span class="text-blue-600">${formatMoney(order.total)}</span>
       </div>
     </div>
   `;
-  bindUploadInForm();
-  $("modalOverlay").classList.remove("hidden");
-  $("modalOverlay").classList.add("flex");
+
+  $("orderModalContent").innerHTML = `
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div>
+        <h3 class="font-bold mb-4">Sản phẩm đã đặt</h3>
+        <div class="space-y-4 max-h-64 overflow-y-auto pr-2">
+          ${itemsHtml || '<p class="text-gray-500 text-sm">Không có sản phẩm</p>'}
+        </div>
+      </div>
+      <div>
+        ${addressHtml}
+        ${summaryHtml}
+      </div>
+    </div>
+  `;
+
+  $("orderModal").classList.remove("hidden");
 }
 
-async function deleteBanner(b) {
+function closeOrderModal() {
+  $("orderModal").classList.add("hidden");
+}
+
+// --- BANNERS ---
+async function loadBanners() {
+  const grid = $("bannerGrid");
+  grid.innerHTML = "";
+  try {
+    const banners = await api("/api/admin/banners");
+    banners.forEach(b => {
+      const div = document.createElement("div");
+      div.className = "bg-white rounded-xl shadow-sm border overflow-hidden group relative";
+      div.innerHTML = `
+        <img src="${b.image}" class="w-full h-40 object-cover">
+        <div class="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-4">
+          <button onclick='openBannerModal(${JSON.stringify(b).replace(/'/g, "&apos;")})' class="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 shadow-lg"><i class="fa-solid fa-pen-to-square"></i></button>
+          <button onclick="deleteBanner(${b.id})" class="bg-red-600 text-white p-3 rounded-full hover:bg-red-700 shadow-lg"><i class="fa-solid fa-trash"></i></button>
+        </div>
+      `;
+      grid.appendChild(div);
+    });
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function openBannerModal(b = null) {
+  $("bannerModalTitle").textContent = b ? "Chỉnh sửa Banner" : "Thêm Banner Mới";
+  $("b_id").value = b ? b.id : "";
+  $("b_image").value = b ? b.image : "";
+  $("bannerModal").classList.remove("hidden");
+}
+
+function closeBannerModal() {
+  $("bannerModal").classList.add("hidden");
+  $("bannerForm").reset();
+}
+
+$("bannerForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const id = $("b_id").value;
+  const data = { image: $("b_image").value };
+  try {
+    if (id) {
+      await api(`/api/admin/banners/${id}`, { method: "PUT", body: JSON.stringify(data) });
+    } else {
+      await api("/api/admin/banners", { method: "POST", body: JSON.stringify(data) });
+    }
+    closeBannerModal();
+    loadBanners();
+  } catch (e) {
+    alert(e.message);
+  }
+};
+
+async function deleteBanner(id) {
   if (!confirm("Xoá banner này?")) return;
   try {
-    await api(`/api/admin/banners/${b.id}`, { method: "DELETE" });
+    await api(`/api/admin/banners/${id}`, { method: "DELETE" });
     loadBanners();
   } catch (e) {
     alert(e.message);
   }
 }
 
-// --- Stations ---
+// --- STATIONS ---
 async function loadStations() {
-  const tbody = $("stationsTbody");
-  const empty = $("stationsEmpty");
-  tbody.innerHTML = "";
-  empty.classList.add("hidden");
+  const list = $("stationList");
+  list.innerHTML = "";
   try {
-    const list = await api("/api/admin/stations");
-    if (!list.length) {
-      empty.classList.remove("hidden");
-      return;
-    }
-    list.forEach((s) => {
+    const stations = await api("/api/admin/stations");
+    stations.forEach(s => {
       const tr = document.createElement("tr");
-      tr.className = "border-t border-slate-100";
-      const loc = s.location || {};
+      tr.className = "border-b hover:bg-gray-50 transition";
       tr.innerHTML = `
-        <td class="px-4 py-3 font-medium">${escapeHtml(s.name || "")}</td>
-        <td class="px-4 py-3">${escapeHtml(s.address || "")} ${loc.lat != null ? `(${loc.lat}, ${loc.lng})` : ""}</td>
-        <td class="px-4 py-3">
-          <button type="button" class="edit-btn text-amber-600 hover:underline mr-2">Sửa</button>
-          <button type="button" class="del-btn text-red-600 hover:underline">Xoá</button>
+        <td class="p-4 text-sm text-gray-500">#${s.id}</td>
+        <td class="p-4"><img src="${s.image || ''}" class="w-12 h-12 object-cover rounded shadow-sm"></td>
+        <td class="p-4 font-medium">${escapeHtml(s.name)}</td>
+        <td class="p-4 text-sm text-gray-500">${escapeHtml(s.address)}</td>
+        <td class="p-4">
+          <button onclick='openStationModal(${JSON.stringify(s).replace(/'/g, "&apos;")})' class="text-blue-600 hover:text-blue-800 mr-3"><i class="fa-solid fa-pen-to-square"></i></button>
+          <button onclick="deleteStation(${s.id})" class="text-red-600 hover:text-red-800"><i class="fa-solid fa-trash"></i></button>
         </td>
       `;
-      tr.querySelector(".edit-btn").addEventListener("click", () => openStationForm(s));
-      tr.querySelector(".del-btn").addEventListener("click", () => deleteStation(s));
-      tbody.appendChild(tr);
+      list.appendChild(tr);
     });
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="3" class="px-4 py-6 text-red-600">${escapeHtml(e.message)}</td></tr>`;
+    console.error(e);
   }
 }
 
-function openStationForm(item = null) {
-  const loc = item?.location || {};
-  $("formEntity").value = "stations";
-  $("formMode").value = item ? "edit" : "create";
-  $("formId").value = item ? item.id : "";
-  $("modalTitle").textContent = item ? "Sửa điểm giao hàng" : "Thêm điểm giao hàng";
-  $("formBody").innerHTML = `
-    <div><label class="block text-sm font-medium text-slate-700 mb-1">Tên *</label><input type="text" name="name" value="${escapeHtml(item?.name || "")}" required class="w-full rounded-lg border border-slate-200 px-3 py-2"/></div>
-    <div><label class="block text-sm font-medium text-slate-700 mb-1">Địa chỉ</label><input type="text" name="address" value="${escapeHtml(item?.address || "")}" class="w-full rounded-lg border border-slate-200 px-3 py-2"/></div>
-    <div class="grid grid-cols-2 gap-3">
-      <div><label class="block text-sm font-medium text-slate-700 mb-1">Lat</label><input type="number" step="any" name="location.lat" value="${loc.lat ?? ""}" class="w-full rounded-lg border border-slate-200 px-3 py-2"/></div>
-      <div><label class="block text-sm font-medium text-slate-700 mb-1">Lng</label><input type="number" step="any" name="location.lng" value="${loc.lng ?? ""}" class="w-full rounded-lg border border-slate-200 px-3 py-2"/></div>
-    </div>
-    <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">Ảnh</label>
-      <div class="flex gap-2">
-        <input type="text" name="image" value="${escapeHtml(item?.image || "")}" class="flex-1 rounded-lg border border-slate-200 px-3 py-2"/>
-        <label class="btn-upload cursor-pointer rounded-lg bg-amber-500 text-slate-900 px-3 py-2 text-sm font-medium flex items-center">Chọn ảnh<input type="file" accept="image/*" class="hidden" data-for="image"/></label>
-      </div>
-    </div>
-  `;
-  bindUploadInForm();
-  $("modalOverlay").classList.remove("hidden");
-  $("modalOverlay").classList.add("flex");
+function openStationModal(s = null) {
+  $("stationModalTitle").textContent = s ? "Chỉnh sửa Điểm nhận" : "Thêm Điểm nhận Mới";
+  $("s_id").value = s ? s.id : "";
+  $("s_name").value = s ? s.name : "";
+  $("s_address").value = s ? s.address : "";
+  $("s_image").value = s ? s.image : "";
+  $("stationModal").classList.remove("hidden");
 }
 
-async function deleteStation(s) {
-  if (!confirm(`Xoá điểm "${s.name}"?`)) return;
+function closeStationModal() {
+  $("stationModal").classList.add("hidden");
+  $("stationForm").reset();
+}
+
+$("stationForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const id = $("s_id").value;
+  const data = {
+    name: $("s_name").value,
+    address: $("s_address").value,
+    image: $("s_image").value,
+  };
   try {
-    await api(`/api/admin/stations/${s.id}`, { method: "DELETE" });
+    if (id) {
+      await api(`/api/admin/stations/${id}`, { method: "PUT", body: JSON.stringify(data) });
+    } else {
+      await api("/api/admin/stations", { method: "POST", body: JSON.stringify(data) });
+    }
+    closeStationModal();
+    loadStations();
+  } catch (e) {
+    alert(e.message);
+  }
+};
+
+async function deleteStation(id) {
+  if (!confirm("Xoá điểm nhận hàng này?")) return;
+  try {
+    await api(`/api/admin/stations/${id}`, { method: "DELETE" });
     loadStations();
   } catch (e) {
     alert(e.message);
   }
 }
 
-// --- Orders ---
-async function loadOrders() {
-  const tbody = $("ordersTbody");
-  const empty = $("ordersEmpty");
-  tbody.innerHTML = "";
-  empty.classList.add("hidden");
+// --- UTILS ---
+async function handleFileUpload(input, targetInputId) {
+  const file = input.files[0];
+  if (!file) return;
+  
+  const formData = new FormData();
+  formData.append("file", file);
+  
   try {
-    const list = await api("/api/admin/orders");
-    if (!list.length) {
-      empty.classList.remove("hidden");
-      return;
-    }
-    list.forEach((o) => {
-      const tr = document.createElement("tr");
-      tr.className = "border-t border-slate-100";
-      tr.innerHTML = `
-        <td class="px-4 py-3">${o.id ?? ""}</td>
-        <td class="px-4 py-3">${escapeHtml(o.status || "")}</td>
-        <td class="px-4 py-3">${escapeHtml(o.paymentStatus || "")}</td>
-        <td class="px-4 py-3">${formatMoney(o.total)}</td>
-        <td class="px-4 py-3"><button type="button" class="edit-order-btn text-amber-600 hover:underline">Sửa</button></td>
-      `;
-      tr.querySelector(".edit-order-btn").addEventListener("click", () => openOrderForm(o));
-      tbody.appendChild(tr);
+    const res = await api("/api/admin/upload", {
+      method: "POST",
+      body: formData
     });
+    $(targetInputId).value = res.url;
+    updateImagePreview(targetInputId, targetInputId + "_preview");
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="5" class="px-4 py-6 text-red-600">${escapeHtml(e.message)}</td></tr>`;
+    alert("Tải ảnh thất bại: " + e.message);
   }
 }
 
-function openOrderForm(item) {
-  $("formEntity").value = "orders";
-  $("formMode").value = "edit";
-  $("formId").value = item.id;
-  $("modalTitle").textContent = "Cập nhật đơn hàng";
-  $("formBody").innerHTML = `
-    <div><label class="block text-sm font-medium text-slate-700 mb-1">Trạng thái</label><select name="status" class="w-full rounded-lg border border-slate-200 px-3 py-2"><option value="pending" ${item.status === "pending" ? "selected" : ""}>pending</option><option value="shipping" ${item.status === "shipping" ? "selected" : ""}>shipping</option><option value="completed" ${item.status === "completed" ? "selected" : ""}>completed</option></select></div>
-    <div><label class="block text-sm font-medium text-slate-700 mb-1">Thanh toán</label><select name="paymentStatus" class="w-full rounded-lg border border-slate-200 px-3 py-2"><option value="pending" ${item.paymentStatus === "pending" ? "selected" : ""}>pending</option><option value="success" ${item.paymentStatus === "success" ? "selected" : ""}>success</option><option value="failed" ${item.paymentStatus === "failed" ? "selected" : ""}>failed</option></select></div>
-    <div><label class="block text-sm font-medium text-slate-700 mb-1">Ghi chú</label><textarea name="note" rows="2" class="w-full rounded-lg border border-slate-200 px-3 py-2">${escapeHtml(item.note || "")}</textarea></div>
-  `;
-  $("modalOverlay").classList.remove("hidden");
-  $("modalOverlay").classList.add("flex");
-}
-
-// --- Upload in form: file input -> upload -> set text input ---
-function bindUploadInForm() {
-  $("formBody").querySelectorAll('input[type="file"][data-for]').forEach((fileInput) => {
-    const forName = fileInput.getAttribute("data-for");
-    fileInput.addEventListener("change", async () => {
-      const file = fileInput.files[0];
-      if (!file) return;
-      const textInput = $("entityForm").querySelector(`input[name="${forName}"]`);
-      if (!textInput) return;
-      textInput.disabled = true;
-      textInput.placeholder = "Đang tải lên...";
-      try {
-        const url = await uploadFile(file);
-        textInput.value = url;
-        textInput.placeholder = "URL hoặc upload";
-      } catch (e) {
-        textInput.placeholder = "Lỗi: " + e.message;
-      }
-      textInput.disabled = false;
-      fileInput.value = "";
-    });
-  });
-}
-
-// --- Form submit ---
-function getFormData() {
-  const form = $("entityForm");
-  const entity = $("formEntity").value;
-  const data = {};
-  form.querySelectorAll("input, select, textarea").forEach((el) => {
-    if (!el.name || el.type === "file" || el.id && el.id.startsWith("form")) return;
-    const val = el.value.trim();
-    if (el.name.startsWith("location.")) {
-      const key = el.name.split(".")[1];
-      data.location = data.location || {};
-      if (val !== "") data.location[key] = Number(val);
-    } else if (el.name && val !== "") {
-      if (el.type === "number") data[el.name] = Number(val);
-      else data[el.name] = val;
-    }
-  });
-  return data;
-}
-
-$("entityForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const entity = $("formEntity").value;
-  const mode = $("formMode").value;
-  const id = $("formId").value;
-  const body = getFormData();
-
-  try {
-    if (mode === "edit") {
-      await api(`/api/admin/${entity}/${id}`, { method: "PUT", body: JSON.stringify(body) });
-    } else {
-      await api(`/api/admin/${entity}`, { method: "POST", body: JSON.stringify(body) });
-    }
-    closeModal();
-    if (entity === "products") loadProducts();
-    else if (entity === "categories") loadCategories();
-    else if (entity === "banners") loadBanners();
-    else if (entity === "stations") loadStations();
-    else if (entity === "orders") loadOrders();
-  } catch (err) {
-    alert(err.message);
+function updateImagePreview(inputId, previewId) {
+  const url = $(inputId).value;
+  const preview = $(previewId);
+  if (url && preview) {
+    preview.innerHTML = `<img src="${url}" class="w-full h-full object-cover">`;
   }
-});
-
-function closeModal() {
-  $("modalOverlay").classList.add("hidden");
-  $("modalOverlay").classList.remove("flex");
 }
 
-$("modalClose").addEventListener("click", closeModal);
-$("formCancel").addEventListener("click", closeModal);
-$("modalOverlay").addEventListener("click", (e) => { if (e.target === $("modalOverlay")) closeModal(); });
-
-// --- Buttons ---
-$("saveTokenBtn").addEventListener("click", () => {
-  setToken($("adminToken").value.trim());
-  alert("Đã lưu token.");
-  loadDashboardStats();
-});
-
-$("btnAddProduct").addEventListener("click", () => openProductForm(null));
-$("btnAddCategory").addEventListener("click", () => openCategoryForm(null));
-$("btnAddBanner").addEventListener("click", () => openBannerForm(null));
-$("btnAddStation").addEventListener("click", () => openStationForm(null));
-
-// --- Init ---
-$("adminToken").value = getToken();
-initRouter();
+// Init
+checkAuth();

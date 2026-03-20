@@ -1,6 +1,7 @@
 import TransitionLink from "@/components/transition-link";
 import { useAtomValue } from "jotai";
 import { categoriesState } from "@/state";
+import { getFinalImageUrl } from "@/utils/format";
 
 export default function CategoryListPage() {
   const categories = useAtomValue(categoriesState);
@@ -15,7 +16,7 @@ export default function CategoryListPage() {
         >
           <div className="px-1">
             <img
-              src={category.image}
+              src={getFinalImageUrl(category.image)}
               className="aspect-square object-cover rounded-full bg-skeleton"
               alt={category.name}
             />

@@ -35,15 +35,6 @@ const upload = multer({
   },
 });
 
-app.use(express.json());
-app.use((req, res, next) => {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("Referrer-Policy", "no-referrer");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  next();
-});
-
 const corsOriginsFromEnv = (process.env.CORS_ORIGINS ?? "")
   .split(",")
   .map((s) => s.trim())
@@ -51,35 +42,77 @@ const corsOriginsFromEnv = (process.env.CORS_ORIGINS ?? "")
 
 app.use(
   cors({
-    origin: [
-      "https://h5.zdn.vn",
-      "http://localhost:3000",
-      "http://localhost:5173",
-      "https://pinhoanglong-miniapp.onrender.com",
-      "https://pinhoanglong-miniapp-zu7q.onrender.com",
-      ...corsOriginsFromEnv,
-    ],
+    origin: "*",
+    credentials: true,
   })
 );
+
+app.use(express.json());
+app.use("/uploads", (req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  next();
+}, express.static(UPLOAD_DIR));
+app.use("/admin", express.static("admin"));
+
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+
+/* ---------------- SEED DATA ---------------- */
+
+async function seedData() {
+  const count = await Product.countDocuments();
+  if (count > 0) return; // Đã có dữ liệu, không seed nữa
+
+  console.log("Seeding mock data for battery components...");
+
+  const categories = [
+    { id: 1, name: "Pin & Cell Pin", image: "https://images.unsplash.com/photo-1611278484859-f1c2f6e34c9d?auto=format&fit=crop&w=200&h=200" },
+    { id: 2, name: "Mạch Bảo Vệ (BMS)", image: "https://images.unsplash.com/photo-1593642702821-c8da6771f0c6?auto=format&fit=crop&w=200&h=200" },
+    { id: 3, name: "Sạc & Adapter", image: "https://images.unsplash.com/photo-1588196749107-4521c6b3739d?auto=format&fit=crop&w=200&h=200" },
+    { id: 4, name: "Phụ Kiện & Vỏ Pin", image: "https://images.unsplash.com/photo-1624562149452-9560d6e8422a?auto=format&fit=crop&w=200&h=200" },
+  ];
+  await Category.insertMany(categories);
+
+  const banners = [
+    { id: 1, image: "https://images.unsplash.com/photo-1581092916346-539270a425ed?auto=format&fit=crop&w=800&h=400" },
+    { id: 2, image: "https://images.unsplash.com/photo-1620799140408-edc6d5f93528?auto=format&fit=crop&w=800&h=400" },
+  ];
+  await Banner.insertMany(banners);
+
+  const products = [
+    { id: 1, categoryId: 1, name: "Cell pin Lishen 2000mAh - xả 10C", price: 35000, originalPrice: 45000, image: "https://images.unsplash.com/photo-1611278484859-f1c2f6e34c9d?auto=format&fit=crop&w=400&h=400", detail: "Cell pin Lishen chính hãng, dung lượng thật 2000mAh, dòng xả cao 10C (20A), chuyên dùng cho máy khoan, xe điện." },
+    { id: 2, categoryId: 1, name: "Pin 18650 Samsung 25R", price: 75000, originalPrice: 90000, image: "https://images.unsplash.com/photo-1624562149452-9560d6e8422a?auto=format&fit=crop&w=400&h=400", detail: "Cell pin Samsung 25R dung lượng 2500mAh, xả 20A, hiệu suất cao và bền bỉ." },
+    { id: 3, categoryId: 2, name: "Mạch bảo vệ BMS 3S 40A", price: 80000, originalPrice: 100000, image: "https://images.unsplash.com/photo-1593642702821-c8da6771f0c6?auto=format&fit=crop&w=400&h=400", detail: "Mạch bảo vệ pin 3S (12.6V) dòng xả 40A, có chức năng cân bằng cell, bảo vệ quá sạc, quá xả, quá dòng." },
+    { id: 4, categoryId: 2, name: "Mạch cân bằng pin 4S", price: 45000, originalPrice: 50000, image: "https://images.unsplash.com/photo-1620799140408-edc6d5f93528?auto=format&fit=crop&w=400&h=400", detail: "Mạch cân bằng chủ động cho khối pin 4S, giúp đều áp các cell, tăng tuổi thọ pin." },
+    { id: 5, categoryId: 3, name: "Sạc Adapter 12.6V 2A", price: 95000, originalPrice: 120000, image: "https://images.unsplash.com/photo-1588196749107-4521c6b3739d?auto=format&fit=crop&w=400&h=400", detail: "Sạc cho khối pin 3S, có đèn báo đầy, tự ngắt khi pin đầy." },
+    { id: 6, categoryId: 4, name: "Vỏ pin 3S (21 cell) cho máy khoan", price: 55000, originalPrice: 70000, image: "https://images.unsplash.com/photo-1581092916346-539270a425ed?auto=format&fit=crop&w=400&h=400", detail: "Vỏ nhựa ABS chắc chắn, dùng để đóng khối pin 3S 21 cell 18650 cho máy khoan, bắt vít." },
+  ];
+  await Product.insertMany(products);
+
+  const stations = [
+    { id: 1, name: "Kho Hóc Môn", address: "301/5Đ Phạm Thị Giây, Hóc Môn, TP.HCM", location: { lat: 10.864, lng: 106.591 }, image: "https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&w=400&h=400" },
+    { id: 2, name: "Điểm giao hàng Gò Vấp", address: "123 Nguyễn Oanh, Gò Vấp, TP.HCM", location: { lat: 10.833, lng: 106.665 }, image: "https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=400&h=400" },
+  ];
+  await Station.insertMany(stations);
+
+  console.log("Mock data for battery components seeded successfully.");
+}
 
 /* ---------------- MONGODB CONNECT ---------------- */
 
 if (!process.env.MONGO_URL) {
-  console.error("Missing MONGO_URL. Please set it in environment variables.");
+  console.warn("Missing MONGO_URL. Using local fallback (mock in-memory data mode)...");
 }
 
 mongoose
-  .connect(process.env.MONGO_URL as string)
-  .then(() => console.log("MongoDB connected"))
-  .catch((err) => console.error(err));
-
-mongoose.connection.on("error", (err) => {
-  console.error("MongoDB connection error", err);
-});
-
-mongoose.connection.on("disconnected", () => {
-  console.warn("MongoDB disconnected");
-});
+  .connect(process.env.MONGO_URL || "mongodb://localhost:27017/pinhoanglong")
+  .then(() => {
+    console.log("MongoDB connected");
+    seedData().catch(err => console.error("Seed error:", err));
+  })
+  .catch((err) => {
+    console.error("MongoDB connection failed. App will continue but DB features might fail.", err);
+  });
 
 /* ---------------- SCHEMAS ---------------- */
 
@@ -138,11 +171,6 @@ const Category = mongoose.model("Category", categorySchema);
 const Banner = mongoose.model("Banner", bannerSchema);
 const Station = mongoose.model("Station", stationSchema);
 const Order = mongoose.model("Order", orderSchema);
-
-/* ---------------- STATIC: UPLOADS & ADMIN ---------------- */
-
-app.use("/uploads", express.static(UPLOAD_DIR));
-app.use("/admin", express.static("admin"));
 
 /* ---------------- BASIC ---------------- */
 
@@ -370,8 +398,7 @@ adminApi.post("/upload", upload.single("file"), (req, res) => {
     res.status(400).json({ error: "No file uploaded" });
     return;
   }
-  const base = `${req.protocol}://${req.get("host") || ""}`;
-  res.json({ url: `${base}/uploads/${req.file.filename}` });
+  res.json({ url: `/uploads/${req.file.filename}` });
 });
 
 adminApi.get("/products", async (req, res) => {
@@ -582,6 +609,28 @@ adminApi.delete("/orders/:id", async (req, res) => {
   }
   await Order.findOneAndDelete({ id });
   res.json({ success: true });
+});
+
+/* ---------------- RESET DATABASE ---------------- */
+adminApi.post("/reset-database", async (req, res) => {
+  try {
+    console.log("FORCE RESETTING database (dropping collections)...");
+    
+    // Xóa toàn bộ dữ liệu cũ và drop index
+    try { await Product.collection.drop(); } catch(e) {}
+    try { await Category.collection.drop(); } catch(e) {}
+    try { await Banner.collection.drop(); } catch(e) {}
+    try { await Station.collection.drop(); } catch(e) {}
+    try { await Order.collection.drop(); } catch(e) {}
+
+    // Gọi lại hàm seedData để điền dữ liệu mới
+    await seedData();
+
+    res.json({ success: true, message: "Database has been reset and seeded with new data." });
+  } catch (error: any) {
+    console.error("Error resetting database:", error);
+    res.status(500).json({ error: error.message || "Failed to reset database" });
+  }
 });
 
 api.use("/admin", adminApi);

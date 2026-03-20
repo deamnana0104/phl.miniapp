@@ -13,6 +13,7 @@ import SearchBar from "./search-bar";
 import TransitionLink from "./transition-link";
 import { Icon } from "zmp-ui";
 import { DefaultUserAvatar } from "./vectors";
+import { getFinalImageUrl } from "@/utils/format";
 
 export default function Header() {
   const categories = useAtomValue(categoriesStateUpwrapped);
@@ -44,7 +45,7 @@ export default function Header() {
         {handle?.logo ? (
           <>
             <img
-              src={getConfig((c) => c.template.logoUrl)}
+              src={getFinalImageUrl(getConfig((c) => c.template.logoUrl))}
               className="flex-none w-8 h-8 rounded-full"
             />
             <TransitionLink to="/stations" className="flex-1 overflow-hidden">

@@ -1,6 +1,7 @@
 import TransitionLink from "@/components/transition-link";
 import { useAtomValue } from "jotai";
 import { categoriesState } from "@/state";
+import { getFinalImageUrl } from "@/utils/format";
 
 export default function Category() {
   const categories = useAtomValue(categoriesState);
@@ -21,7 +22,7 @@ export default function Category() {
           to={`/category/${category.id}`}
         >
           <img
-            src={category.image}
+            src={getFinalImageUrl(category.image)}
             className="w-12 h-12 object-cover rounded-full bg-skeleton"
             alt={category.name}
           />

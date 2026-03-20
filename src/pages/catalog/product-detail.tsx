@@ -2,7 +2,7 @@ import HorizontalDivider from "@/components/horizontal-divider";
 import { useAtomValue } from "jotai";
 import { useNavigate, useParams } from "react-router-dom";
 import { productState } from "@/state";
-import { formatPrice } from "@/utils/format";
+import { formatPrice, getFinalImageUrl } from "@/utils/format";
 import ShareButton from "./share-buttont";
 import RelatedProducts from "./related-products";
 import { useAddToCart } from "@/hooks";
@@ -22,7 +22,7 @@ export default function ProductDetailPage() {
         <div className="w-full p-4 pb-2 space-y-4 bg-section">
           <img
             key={product.id}
-            src={product.image}
+            src={getFinalImageUrl(product.image)}
             alt={product.name}
             className="w-full h-full object-cover rounded-lg"
             style={{

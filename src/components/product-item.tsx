@@ -1,5 +1,5 @@
 import { Product } from "@/types";
-import { formatPrice } from "@/utils/format";
+import { formatPrice, getFinalImageUrl } from "@/utils/format";
 import TransitionLink from "./transition-link";
 import { useState } from "react";
 import { Button } from "zmp-ui";
@@ -32,7 +32,7 @@ export default function ProductItem(props: ProductItemProps) {
         {({ isTransitioning }) => (
           <>
             <img
-              src={props.product.image}
+              src={getFinalImageUrl(props.product.image)}
               className="w-full aspect-square object-cover rounded-lg"
               style={{
                 viewTransitionName:
