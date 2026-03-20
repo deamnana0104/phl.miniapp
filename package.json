@@ -20,7 +20,7 @@
   "scripts": {
     "dev": "zmp start",
     "start": "tsx src/backend.ts",
-    "build": "vite build && cp -r admin dist/",
+    "build": "vite build && shx cp -r admin dist/",
     "deploy": "zmp deploy",
     "build:css": "postcss src/css/tailwind.scss -o src/css/styles.css",
     "backend": "tsx src/backend.ts"
@@ -62,6 +62,7 @@
     "postcss-cli": "^11.0.1",
     "postcss-preset-env": "^11.2.0",
     "sass": "^1.76.0",
+    "shx": "^0.4.0",
     "tailwindcss": "^4.2.2",
     "vite": "^5.2.13",
     "zmp-vite-plugin": "^1.1.6"
