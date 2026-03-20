@@ -98,11 +98,7 @@ export const phoneState = atom(async () => {
 });
 
 export const bannersState = atom(async () => {
-  const banners = await requestWithFallback<{ id: number; image: string }[]>(
-    "/banners",
-    []
-  );
-  return banners.map((b) => b.image);
+  return requestWithFallback<string[]>("/banners", []);
 });
 
 export const tabsState = atom(["Tất cả", "Nam", "Nữ", "Trẻ em"]);

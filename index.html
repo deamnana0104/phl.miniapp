@@ -33,6 +33,58 @@
   <body>
     <div id="app"></div>
     <!-- built script files will be auto injected -->
+    <script>
+      (function () {
+        function shouldShow() {
+          const h = String(location.hostname || "");
+          return h === "localhost" || h === "127.0.0.1";
+        }
+        if (!shouldShow()) return;
+
+        function showError(title, detail) {
+          try {
+            var el = document.getElementById("__runtime_error__");
+            if (!el) {
+              el = document.createElement("pre");
+              el.id = "__runtime_error__";
+              el.style.position = "fixed";
+              el.style.left = "12px";
+              el.style.right = "12px";
+              el.style.bottom = "12px";
+              el.style.maxHeight = "45vh";
+              el.style.overflow = "auto";
+              el.style.zIndex = "999999";
+              el.style.padding = "12px";
+              el.style.background = "rgba(0,0,0,0.85)";
+              el.style.color = "#fff";
+              el.style.fontSize = "12px";
+              el.style.lineHeight = "1.4";
+              el.style.whiteSpace = "pre-wrap";
+              el.style.borderRadius = "10px";
+              document.body.appendChild(el);
+            }
+            el.textContent = title + "\n\n" + detail;
+          } catch (_) {}
+        }
+
+        window.addEventListener("error", function (e) {
+          var msg = e && e.message ? String(e.message) : "Unknown error";
+          var stack = e && e.error && e.error.stack ? String(e.error.stack) : "";
+          showError("Runtime Error", msg + (stack ? "\n\n" + stack : ""));
+        });
+
+        window.addEventListener("unhandledrejection", function (e) {
+          var reason = e && e.reason ? e.reason : "Unknown rejection";
+          var detail =
+            typeof reason === "string"
+              ? reason
+              : reason && reason.stack
+                ? String(reason.stack)
+                : JSON.stringify(reason);
+          showError("Unhandled Promise Rejection", detail);
+        });
+      })();
+    </script>
 
     <script type="module" src="/src/app.ts"></script>
   </body>
