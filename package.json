@@ -20,6 +20,7 @@
   "scripts": {
     "dev": "zmp start",
     "start": "tsx src/backend.ts",
+    "build": "vite build && cp -r admin dist/",
     "deploy": "zmp deploy",
     "build:css": "postcss src/css/tailwind.scss -o src/css/styles.css",
     "backend": "tsx src/backend.ts"
@@ -47,6 +48,7 @@
     "zmp-ui": "^1.11.6"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.2.2",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/multer": "^2.1.0",

@@ -6,8 +6,11 @@ import path from "path";
 // https://vitejs.dev/config/
 export default () => {
   return defineConfig({
-    root: "./src",
+    root: "./",
     base: "",
+    build: {
+      outDir: "dist",
+    },
     plugins: [zaloMiniApp(), react()],
     resolve: {
       alias: {
